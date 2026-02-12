@@ -1,0 +1,41 @@
+#cloud-config
+package_update: true
+packages:
+  - rsyslog
+  - amazon-cloudwatch-agent
+
+write_files:
+  - path: /etc/rsyslog.d/10-central-syslog.conf
+    permissions: "0644"
+    content: |
+      module(load="imudp")
+      input(type="imudp" port="514")
+
+      # Store all received syslog messages here
+      *.* /var/log/remote-syslog.log
+
+  - path: /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+    permissions: "0644"
+    content: |
+      {
+        "logs": {
+          "logs_collected": {
+            "files": {
+              "collect_list": [
+                {
+                  "file_path": "/var/log/remote-syslog.log",
+                  "log_group_name": "/aws/syslog/central-ingest",
+                  "log_stream_name": "{instance_id}",
+                  "timezone": "UTC"
+                }
+              ]
+            }
+          }
+        }
+      }
+
+runcmd:
+  - systemctl enable rsyslog
+  - systemctl restart rsyslog
+  - /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a stop || true
+  - /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s
